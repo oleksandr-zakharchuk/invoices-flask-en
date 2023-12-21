@@ -65,6 +65,7 @@ def create_invoice():
             batch_id = db.session.query(func.max(Invoice.batch_id)).scalar() + 1
         else:
             batch_id = 1
+        invoice_checked = False
         for p_invoice in request.json['products']:
             product = Invoice(
                 invoice_type=request.json['invoice_type'],
@@ -82,14 +83,16 @@ def create_invoice():
                         total_products_qty[total_p['id']] = total_p['qty']
                     else:
                         total_products_qty[total_p['id']] += total_p['qty']
-                # get quantity of a particular product in all batches
-                product_in_stock = db.session.query(func.sum(Invoice.quantity).label("product_in_stock")).filter_by(
-                    product_id=product.product_id).all()[0][0]
-                if (product_in_stock is not None) and (total_products_qty[product.product_id] <= product_in_stock):
-                    db.session.add(product)
-                    db.session.commit()
-                else:
-                    return jsonify({'status': 'out_of_stock', 'product_id': product.product_id})
+                if not invoice_checked:
+                    for check_p_invoice in request.json['products']:
+                        # get quantity of a particular product in all batches
+                        product_in_stock = db.session.query(func.sum(Invoice.quantity).label("product_in_stock")).filter_by(
+                            product_id=check_p_invoice['id']).all()[0][0]
+                        if (product_in_stock is not None) and (total_products_qty[check_p_invoice['id']] > product_in_stock):
+                            return jsonify({'status': 'out_of_stock', 'product_id': check_p_invoice['id']})
+                    invoice_checked = True
+                db.session.add(product)
+                db.session.commit()
                 products = db.session.query(Invoice).filter_by(product_id=product.product_id).order_by(Invoice.date).all()
                 requested_qty = product.quantity
                 for p_current in products:
